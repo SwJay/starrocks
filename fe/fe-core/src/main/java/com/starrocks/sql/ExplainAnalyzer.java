@@ -98,7 +98,7 @@ public class ExplainAnalyzer {
     public static String analyze(ProfilingExecPlan plan,
                                  RuntimeProfile profile,
                                  List<Integer> planNodeIds,
-                                 boolean colorExplainOutput){
+                                 boolean colorExplainOutput) {
         return analyze(plan, profile, planNodeIds, colorExplainOutput, null);
     }
 
@@ -1159,14 +1159,14 @@ public class ExplainAnalyzer {
                         cacheProbeTabletNum != null && cachePopulateTabletNum != null) {
                     node.put("tabletNum", tabletNum);
                     node.put("cachePassThroughTabletNum", cachePassthroughTabletNum);
-                    node.put("cachePassThroughTabletNumRate",String.format("%.2f%%",
-                                    100.0 * cachePassthroughTabletNum.getValue() / tabletNum.getValue()));
-                    node.put("cacheProbeTabletNum",cacheProbeTabletNum);
-                    node.put("cacheProbeTabletNumRate",String.format("%.2f%%",
-                                    100.0 * cacheProbeTabletNum.getValue() / tabletNum.getValue()));
+                    node.put("cachePassThroughTabletNumRate", String.format("%.2f%%",
+                            100.0 * cachePassthroughTabletNum.getValue() / tabletNum.getValue()));
+                    node.put("cacheProbeTabletNum", cacheProbeTabletNum);
+                    node.put("cacheProbeTabletNumRate", String.format("%.2f%%",
+                            100.0 * cacheProbeTabletNum.getValue() / tabletNum.getValue()));
                     node.put("cachePopulateTabletNum", cachePopulateTabletNum);
-                    node.put("cachePopulateTabletNumRate",String.format("%.2f%%",
-                                    100.0 * cachePopulateTabletNum.getValue() / tabletNum.getValue()));
+                    node.put("cachePopulateTabletNumRate", String.format("%.2f%%",
+                            100.0 * cachePopulateTabletNum.getValue() / tabletNum.getValue()));
                 }
             }
         }

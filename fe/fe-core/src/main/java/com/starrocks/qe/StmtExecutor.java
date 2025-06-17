@@ -726,7 +726,8 @@ public class StmtExecutor {
                                         }
                                         handleExplainStmt(ExplainAnalyzer.analyze(
                                                 ProfilingExecPlan.buildFrom(execPlan), profile, null,
-                                                context.getSessionVariable().getColorExplainOutput(), parsedStmt.getExplainFormat()));
+                                                context.getSessionVariable().getColorExplainOutput(),
+                                                parsedStmt.getExplainFormat()));
                                     }
                                 }
                             }
