@@ -680,7 +680,8 @@ public class StmtExecutor {
                                                         "you can set it off by using  set enable_short_circuit=false");
                                     }
                                     handleExplainStmt(ExplainAnalyzer.analyze(
-                                            ProfilingExecPlan.buildFrom(execPlan), profile, null));
+                                            ProfilingExecPlan.buildFrom(execPlan), profile, null,
+                                            parsedStmt.getExplainFormat()));
                                 }
                             }
                         }

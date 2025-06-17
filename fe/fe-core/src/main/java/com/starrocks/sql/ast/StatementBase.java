@@ -89,6 +89,8 @@ public abstract class StatementBase implements ParseNode {
 
     private String traceModule;
 
+    private String explainFormat;
+
     // True if this QueryStmt is the top level query from an EXPLAIN <query>
     protected boolean isExplain = false;
 
@@ -110,6 +112,14 @@ public abstract class StatementBase implements ParseNode {
         this.isExplain = true;
         this.traceMode = mode;
         this.traceModule = module;
+    }
+
+    public String getExplainFormat() {
+        return explainFormat;
+    }
+
+    public void setExplainFormat(String explainFormat) {
+        this.explainFormat = explainFormat;
     }
 
     public boolean isExplain() {
