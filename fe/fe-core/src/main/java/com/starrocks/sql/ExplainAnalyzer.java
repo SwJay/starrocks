@@ -46,6 +46,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -96,7 +97,15 @@ public class ExplainAnalyzer {
     public static String analyze(ProfilingExecPlan plan,
                                  RuntimeProfile profile,
                                  List<Integer> planNodeIds,
-                                 boolean colorExplainOutput) {
+                                 boolean colorExplainOutput){
+        return analyze(plan, profile, planNodeIds, colorExplainOutput, null);
+    }
+
+    public static String analyze(ProfilingExecPlan plan,
+                                 RuntimeProfile profile,
+                                 List<Integer> planNodeIds,
+                                 boolean colorExplainOutput,
+                                 String explainFormat) {
         LOG.debug("plan {} profile {} planNodeIds {}", plan, profile, planNodeIds);
         if (plan == null && profile.getChild("Summary") != null) {
             String loadType = profile.getChild("Summary").getInfoString(ProfileManager.LOAD_TYPE);
@@ -108,7 +117,7 @@ public class ExplainAnalyzer {
             }
         }
         ExplainAnalyzer analyzer = new ExplainAnalyzer(plan, profile, planNodeIds, colorExplainOutput);
-        return analyzer.analyze();
+        return analyzer.analyze(explainFormat);
     }
 
     public static String analyze(ProfilingExecPlan plan, RuntimeProfile profile)
@@ -155,6 +164,8 @@ public class ExplainAnalyzer {
     private final Set<Integer> detailPlanNodeIds = Sets.newHashSet();
     private final StringBuilder summaryBuffer = new StringBuilder();
     private final StringBuilder detailBuffer = new StringBuilder();
+    private final Map<String, Object> summary = new HashMap<>();
+    private final Map<String, Object> detail = new HashMap<>();
     private final LinkedList<String> indents = Lists.newLinkedList();
     private final Map<Integer, NodeInfo> allNodeInfos = Maps.newHashMap();
     private boolean isRuntimeProfile;
@@ -162,6 +173,7 @@ public class ExplainAnalyzer {
 
     private String color = ANSI_RESET;
     private boolean colorExplainOutput = true;
+    private boolean isJsonFormat;
 
     private long cumulativeOperatorTime;
     private Counter cumulativeScanTime;
@@ -188,9 +200,13 @@ public class ExplainAnalyzer {
         }
     }
 
-    public String analyze() {
+    public String analyze(String format) {
         if (plan == null || summaryProfile == null || executionProfile == null) {
             return null;
+        }
+
+        if ("json".equalsIgnoreCase(format)) {
+            isJsonFormat = true;
         }
 
         try {
@@ -206,7 +222,30 @@ public class ExplainAnalyzer {
             appendSummaryLine("Failed to analyze profiles, ", e.getMessage());
         }
 
+        if (isJsonFormat) {
+            Map<String, Object> map = new HashMap<>();
+            map.put("summary", summary);
+            map.put("detail", detail);
+            return toJsonString(map);
+        }
         return summaryBuffer.toString() + detailBuffer;
+    }
+
+    public static String toJsonString(Object object) {
+        if (object instanceof Map<?, ?>) {
+            StringBuilder res = new StringBuilder("{");
+            for (Map.Entry<?, ?> entry : ((Map<?, ?>) object).entrySet()) {
+                if (res.length() > 1) {
+                    res.append(",");
+                }
+                res.append("\"").append(entry.getKey()).append("\":").append(toJsonString(entry.getValue()));
+            }
+            return res.append("}").toString();
+        } else if (object instanceof String) {
+            return "\"" + object + "\"";
+        } else {
+            return object.toString();
+        }
     }
 
     public String getQueryProgress() throws StarRocksException {

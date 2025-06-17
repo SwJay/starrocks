@@ -18,6 +18,7 @@ import com.starrocks.sql.Explain;
 import org.junit.jupiter.api.Test;
 
 public class ExplainTest extends PlanTestBase {
+
     @Test
     public void testExplain() throws Exception {
         String sql = "SELECT DISTINCT t0.v1 FROM t0 LEFT JOIN t1 ON t0.v1 = t1.v4";
@@ -50,5 +51,13 @@ public class ExplainTest extends PlanTestBase {
                 + "   - EXCHANGE(SHUFFLE) [4] {rows: 1}\n"
                 + "    - SCAN [t1] => [4:v4] {rows: 1}\n"
                 + "      |partitionRatio: 0/1, tabletRatio: 0/0");
+    }
+
+    @Test
+    public void testExplain2() throws Exception {
+        String sql = "SELECT DISTINCT t0.v1 FROM t0 LEFT JOIN t1 ON t0.v1 = t1.v4";
+        ExecPlan execPlan = getExecPlan(sql);
+        String plan1 = Explain.toString(execPlan.getPhysicalPlan(), execPlan.getOutputColumns());
+        System.out.println(plan1);
     }
 }
