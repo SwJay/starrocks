@@ -56,6 +56,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
+import java.util.Stack;
 import java.util.TreeSet;
 import java.util.function.BiConsumer;
 import java.util.function.Predicate;
@@ -164,8 +165,7 @@ public class ExplainAnalyzer {
     private final Set<Integer> detailPlanNodeIds = Sets.newHashSet();
     private final StringBuilder summaryBuffer = new StringBuilder();
     private final StringBuilder detailBuffer = new StringBuilder();
-    private final Map<String, Object> summary = new HashMap<>();
-    private final Map<String, Object> detail = new HashMap<>();
+    private final Stack<Map<String, Object>> explainJsonStack = new Stack<>();
     private final LinkedList<String> indents = Lists.newLinkedList();
     private final Map<Integer, NodeInfo> allNodeInfos = Maps.newHashMap();
     private boolean isRuntimeProfile;
@@ -211,8 +211,14 @@ public class ExplainAnalyzer {
 
         try {
             parseProfile();
-            appendExecutionInfo();
-            appendSummaryInfo();
+            if (isJsonFormat) {
+                explainJsonStack.push(new HashMap<>());
+                appendExecutionInfoJson();
+                appendSummaryInfoJson();
+            } else {
+                appendExecutionInfo();
+                appendSummaryInfo();
+            }
         } catch (Exception e) {
             LOG.error("Failed to analyze profiles", e);
             summaryBuffer.setLength(0);
@@ -223,10 +229,7 @@ public class ExplainAnalyzer {
         }
 
         if (isJsonFormat) {
-            Map<String, Object> map = new HashMap<>();
-            map.put("summary", summary);
-            map.put("detail", detail);
-            return toJsonString(map);
+            return toJsonString(explainJsonStack.pop());
         }
         return summaryBuffer.toString() + detailBuffer;
     }
@@ -505,6 +508,103 @@ public class ExplainAnalyzer {
         popIndent(); // metric indent
     }
 
+    private void appendSummaryInfoJson() {
+        if (true) {
+            return;
+        }
+        appendSummaryLine("Summary");
+
+        // 1. Brief information
+        pushIndent(GraphElement.LEAF_METRIC_INDENT);
+        if (plan.getFragments().stream()
+                .anyMatch(fragment -> fragment.getSink().instanceOf(OlapTableSink.class))) {
+            appendSummaryLine("Attention: ", getAnsiColor(ANSI_BOLD + ANSI_BLACK_ON_RED),
+                    "The transaction of the statement will be aborted, and no data will be actually inserted!!!",
+                    getAnsiColor(ANSI_RESET));
+        }
+        if (!isFinishedIdentical) {
+            appendSummaryLine("Attention: ", getAnsiColor(ANSI_BOLD + ANSI_BLACK_ON_RED),
+                    "Profile is not identical!!!", getAnsiColor(ANSI_RESET));
+        }
+        appendSummaryLine("QueryId: ", summaryProfile.getInfoString(ProfileManager.QUERY_ID));
+        appendSummaryLine("Version: ", summaryProfile.getInfoString("StarRocks Version"));
+        appendSummaryLine("State: ", summaryProfile.getInfoString(ProfileManager.QUERY_STATE));
+        if (isRuntimeProfile) {
+            appendSummaryLine("Legend: ", NodeState.INIT.symbol, " for blocked; ", NodeState.RUNNING.symbol,
+                    " for running; ", NodeState.FINISHED.symbol, " for finished");
+        }
+
+        // 2. Time Usage
+        appendSummaryLine("TotalTime: ", summaryProfile.containsInfoString(ProfileManager.TOTAL_TIME) ?
+                summaryProfile.getInfoString(ProfileManager.TOTAL_TIME) :
+                summaryProfile.getCounter(ProfileManager.TOTAL_TIME));
+        pushIndent(GraphElement.LEAF_METRIC_INDENT);
+        Counter executionWallTime = executionProfile.getCounter("QueryExecutionWallTime");
+        if (executionWallTime == null) {
+            executionWallTime = getMaximumPipelineDriverTime();
+        }
+        Counter resultDeliverTime = executionProfile.getCounter("ResultDeliverTime");
+        if (resultDeliverTime == null) {
+            resultDeliverTime = new Counter(TUnit.TIME_NS, null, 0);
+        }
+        if (executionWallTime != null) {
+            appendSummaryLine("ExecutionTime: ", executionWallTime, " [",
+                    "Scan: ", cumulativeScanTime,
+                    String.format(" (%.2f%%)", 100.0 * cumulativeScanTime.getValue() / executionWallTime.getValue()),
+                    ", Network: ", cumulativeNetworkTime,
+                    String.format(" (%.2f%%)", 100.0 * cumulativeNetworkTime.getValue() / executionWallTime.getValue()),
+                    ", ResultDeliverTime: ", resultDeliverTime,
+                    String.format(" (%.2f%%)", 100.0 * resultDeliverTime.getValue() / executionWallTime.getValue()),
+                    ", ScheduleTime: ", scheduleTime,
+                    String.format(" (%.2f%%)", 100.0 * scheduleTime.getValue() / executionWallTime.getValue()),
+                    "]");
+        }
+        if (!isRuntimeProfile) {
+            appendSummaryLine("CollectProfileTime: ",
+                    summaryProfile.containsInfoString(ProfileManager.PROFILE_COLLECT_TIME) ?
+                            summaryProfile.getInfoString(ProfileManager.PROFILE_COLLECT_TIME) :
+                            summaryProfile.getCounter(ProfileManager.PROFILE_COLLECT_TIME));
+        }
+        appendSummaryLine("FrontendProfileMergeTime: ", executionProfile.getCounter("FrontendProfileMergeTime"));
+        popIndent(); // metric indent
+
+        // 3. Memory Usage
+        appendSummaryLine("QueryPeakMemoryUsage: ", executionProfile.getCounter("QueryPeakMemoryUsage"),
+                ", QueryAllocatedMemoryUsage: ", executionProfile.getCounter("QueryAllocatedMemoryUsage"));
+
+        // 4. Top Cpu Nodes
+        appendCpuTopNodes();
+
+        // 5. Top Memory Nodes
+        appendMemoryNodes();
+
+        // 6. Runtime Progress
+        if (isRuntimeProfile) {
+            long finishedCount = allNodeInfos.values().stream()
+                    .filter(nodeInfo -> nodeInfo.state.isFinished())
+                    .count();
+            if (MapUtils.isNotEmpty(allNodeInfos)) {
+                appendSummaryLine(String.format("Progress (finished operator/all operator): %.2f%%",
+                        100.0 * finishedCount / allNodeInfos.size()));
+            }
+        }
+
+        // 7. Non default Variables
+        String sessionVariables = summaryProfile.getInfoString("NonDefaultSessionVariables");
+        Map<String, SessionVariable.NonDefaultValue> variables = Maps.newTreeMap();
+        variables.putAll(SessionVariable.NonDefaultValue.parseFrom(sessionVariables));
+        if (MapUtils.isNotEmpty(variables)) {
+            appendSummaryLine("NonDefaultVariables:");
+            pushIndent(GraphElement.LEAF_METRIC_INDENT);
+            variables.forEach((k, v) -> {
+                appendSummaryLine(k, ": ", v.defaultValue, " -> ", v.actualValue);
+            });
+            popIndent();
+        }
+
+        popIndent(); // metric indent
+    }
+
     private Counter getMaximumPipelineDriverTime() {
         Counter maxDriverTotalTime = null;
         for (Pair<RuntimeProfile, Boolean> fragmentProfileKv : executionProfile.getChildList()) {
@@ -565,6 +665,29 @@ public class ExplainAnalyzer {
             RuntimeProfile fragmentProfile = executionProfile.getChildList().get(i).first;
             appendFragment(fragment, fragmentProfile);
         }
+    }
+
+    private Map<String, Object> pushNewJsonNode(String name) {
+        Map<String, Object> node = new HashMap<>();
+        explainJsonStack.peek().put(name, node);
+        explainJsonStack.push(node);
+        return node;
+    }
+
+    private void popCheckJsonNode(String name) {
+        Map<String, Object> child = explainJsonStack.pop();
+        assert explainJsonStack.peek().get(name) == child;
+    }
+
+    private void appendExecutionInfoJson() {
+        String nodeName = "detail";
+        pushNewJsonNode(nodeName);
+        for (int i = 0; i < plan.getFragments().size(); i++) {
+            ProfilingExecPlan.ProfilingFragment fragment = plan.getFragments().get(i);
+            RuntimeProfile fragmentProfile = executionProfile.getChildList().get(i).first;
+            appendFragmentJson(fragment, fragmentProfile);
+        }
+        popCheckJsonNode(nodeName);
     }
 
     private void appendFragment(ProfilingExecPlan.ProfilingFragment fragment, RuntimeProfile fragmentProfile) {
@@ -640,6 +763,56 @@ public class ExplainAnalyzer {
         appendDetailLine();
     }
 
+    private void appendFragmentJson(ProfilingExecPlan.ProfilingFragment fragment, RuntimeProfile fragmentProfile) {
+        String nodeName = fragmentProfile.getName();
+        Map<String, Object> node = pushNewJsonNode(nodeName);
+        node.put("BackendNum", fragmentProfile.getCounter("BackendNum"));
+        node.put("InstancePeakMemoryUsage", fragmentProfile.getCounter("InstancePeakMemoryUsage"));
+        node.put("InstanceAllocatedMemoryUsage", fragmentProfile.getCounter("InstanceAllocatedMemoryUsage"));
+        node.put("FragmentInstancePrepareTime", fragmentProfile.getCounter("FragmentInstancePrepareTime"));
+        node.put("MissingInstanceIds", fragmentProfile.getInfoString("MissingInstanceIds"));
+        ProfilingExecPlan.ProfilingElement sink = fragment.getSink();
+        NodeInfo sinkInfo = null;
+        boolean isFinalSink = false;
+        if (sink.instanceOf(MultiCastDataSink.class)) {
+            List<String> ids = Lists.newArrayList();
+            if (CollectionUtils.isNotEmpty(sink.getMultiSinkIds())) {
+                sink.getMultiSinkIds().forEach(id -> ids.add(Integer.toString(id)));
+            }
+            node.put(sink.getDisplayName(), String.format("(ids=[%s])", String.join(", ", ids)));
+        } else {
+            if (sink.isFinalSink()) {
+                isFinalSink = true;
+                // Calculate result sink's time info, other sink's type will be properly processed
+                // at the receiver side fragment through exchange node
+                sinkInfo = allNodeInfos.get(FINAL_SINK_PSEUDO_PLAN_NODE_ID);
+                sinkInfo.computeTimeUsage(cumulativeOperatorTime);
+                if (colorExplainOutput) {
+                    if (sinkInfo.isMostConsuming) {
+                        setRedColor();
+                    } else if (sinkInfo.isSecondMostConsuming) {
+                        setCoralColor();
+                    }
+                }
+            } else {
+                sinkInfo = allNodeInfos.get(sink.getId());
+            }
+            node.put(sink.getDisplayName(), isFinalSink ? "" : String.format(" (id=%d)", sink.getId()));
+        }
+        if (isFinalSink && !sinkInfo.state.isInit()) {
+            // Time Usage
+            NodeInfo resultNodeInfo = allNodeInfos.get(FINAL_SINK_PSEUDO_PLAN_NODE_ID);
+            node.put("TotalTime", resultNodeInfo.totalTime);
+            node.put("TotalTimePercentage", String.format(" (%.2f%%)", resultNodeInfo.totalTimePercentage));
+            node.put("CPUTime: ", resultNodeInfo.cpuTime);
+            // Output Rows
+            node.put("OutputRows", resultNodeInfo.outputRowNums);
+        }
+        node.putAll(sink.getUniqueInfos());
+        leftOrderTraverseJson(fragment.getRoot(), null, -1, null);
+        popCheckJsonNode(nodeName);
+    }
+
     private void leftOrderTraverse(ProfilingExecPlan.ProfilingElement cur, ProfilingExecPlan.ProfilingElement parent,
                                    int index,
                                    String preTitleAttribute) {
@@ -691,6 +864,40 @@ public class ExplainAnalyzer {
         }
 
         popIndent(); // child operator indent
+    }
+
+    private void leftOrderTraverseJson(ProfilingExecPlan.ProfilingElement cur, ProfilingExecPlan.ProfilingElement parent,
+                                   int index,
+                                   String preTitleAttribute) {
+        int planNodeId = cur.getId();
+        String nodeName = "planNodeId=" + planNodeId;
+        Map<String, Object> node = pushNewJsonNode(nodeName);
+        NodeInfo nodeInfo = allNodeInfos.get(planNodeId);
+        Preconditions.checkNotNull(nodeInfo);
+        nodeInfo.computeTimeUsage(cumulativeOperatorTime);
+        nodeInfo.computeMemoryUsage();
+        if (colorExplainOutput) {
+            if (nodeInfo.isMostConsuming) {
+                setRedColor();
+            } else if (nodeInfo.isSecondMostConsuming) {
+                setCoralColor();
+            }
+        }
+        node.put(String.format("<%s> ", preTitleAttribute), nodeInfo.getTitle());
+        boolean shouldTraverseChildren = cur.getChildren() != null
+                && !cur.getChildren().isEmpty()
+                && !(cur.instanceOf(ExchangeNode.class));
+        appendOperatorInfoJson(nodeInfo);
+        if (shouldTraverseChildren) {
+            for (int i = 0; i < cur.getChildren().size(); i++) {
+                String childTitleAttribute = null;
+                if (nodeInfo.element.instanceOf(JoinNode.class)) {
+                    childTitleAttribute = (i == 0 ? "PROBE" : "BUILD");
+                }
+                leftOrderTraverseJson(cur.getChildren().get(i), cur, i, childTitleAttribute);
+            }
+        }
+        popCheckJsonNode(nodeName);
     }
 
     private void appendOperatorInfo(NodeInfo nodeInfo) {
@@ -777,6 +984,83 @@ public class ExplainAnalyzer {
         appendOperatorDetailInfo(nodeInfo);
     }
 
+    private void appendOperatorInfoJson(NodeInfo nodeInfo) {
+        if (isRuntimeProfile && nodeInfo.state.isInit()) {
+            return;
+        }
+        String nodeName = "operatorInfo";
+        Map<String, Object> node = pushNewJsonNode(nodeName);
+        // 1. Cost Estimation
+        if (nodeInfo.element.getStatistics() != null && nodeInfo.element.getCostEstimate() != null) {
+            Statistics statistics = nodeInfo.element.getStatistics();
+            CostEstimate cost = nodeInfo.element.getCostEstimate();
+            double totalCost = nodeInfo.element.getTotalCost();
+            if (statistics.getColumnStatistics().values().stream().allMatch(ColumnStatistic::isUnknown)) {
+                node.put("estimateRow", statistics.getOutputRowCount());
+                node.put("estimateTotalCost", totalCost);
+            } else {
+                node.put("estimateRow", statistics.getOutputRowCount());
+                node.put("estimateCpuCost", String.format("%.2f", cost.getCpuCost()));
+                node.put("estimateMemoryCost", String.format("%.2f", cost.getMemoryCost()));
+                node.put("estimateNetworkCost", String.format("%.2f", cost.getNetworkCost()));
+                node.put("estimateTotalCost", totalCost);
+            }
+        }
+        // 2. Time Usage
+        node.put("TotalTime", nodeInfo.totalTime);
+        node.put("totalTimePercentage", String.format("(%.2f%%)", nodeInfo.totalTimePercentage));
+        node.put("CPUTime", nodeInfo.cpuTime);
+        if (nodeInfo.element.instanceOf(ExchangeNode.class)) {
+            if (nodeInfo.networkTime != null) {
+                node.put("NetworkTime", nodeInfo.networkTime);
+            }
+        } else if (nodeInfo.element.instanceOf(ScanNode.class)) {
+            if (nodeInfo.scanTime != null) {
+                node.put("ScanTime", nodeInfo.scanTime);
+            }
+        }
+
+        // 3. Output Rows
+        node.put("OutputRows", nodeInfo.outputRowNums);
+
+        // 4. Memory Infos
+        if (nodeInfo.element.isMemoryConsumingOperator()) {
+            node.put("PeakMemory", nodeInfo.peekMemory);
+            node.put("AllocatedMemory", nodeInfo.allocatedMemory);
+        }
+
+        // 5. Runtime Filters
+        Counter rfInputRows = searchMetric(nodeInfo, SearchMode.NATIVE_ONLY, null, false,
+                "CommonMetrics", "JoinRuntimeFilterInputRows");
+        Counter rfOutputRows = searchMetric(nodeInfo, SearchMode.NATIVE_ONLY, null, false,
+                "CommonMetrics", "JoinRuntimeFilterOutputRows");
+        if (rfInputRows != null && rfOutputRows != null && rfInputRows.getValue() > 0) {
+            node.put("RuntimeFilterInputRows", rfInputRows);
+            node.put("RuntimeFilterRate", String.format("%.2f%%",
+                    100.0 * (rfInputRows.getValue() - rfOutputRows.getValue()) / rfInputRows.getValue()));
+        }
+
+        // 6. Progress Percentage
+        if (isRuntimeProfile && nodeInfo.state.isRunning()) {
+            Counter totalRowNum = getTotalRowNum(nodeInfo);
+            if (totalRowNum != null && totalRowNum.getValue() > 0 && nodeInfo.outputRowNums != null) {
+                node.put("Progress (processed rows/total rows)", String.format(" %.2f%%",
+                        100.0 * nodeInfo.outputRowNums.getValue() / totalRowNum.getValue()));
+            }
+        }
+
+        // 7. Unique Infos
+        appendOperatorUniqueInfoJson(nodeInfo);
+
+        // 8. Subordinate Infos
+        appendSubordinateInfosJson(nodeInfo);
+
+        // 9. Details
+        appendOperatorDetailInfoJson(nodeInfo);
+
+        popCheckJsonNode(nodeName);
+    }
+
     // In order to calculate the progress of the current operator, we need to get the total row number that this
     // operator will process. And sometimes, child operator may already finish its execution, so we can get the output
     // row number from its lowest child along the hierarchy path.
@@ -845,6 +1129,51 @@ public class ExplainAnalyzer {
         nodeInfo.element.getUniqueInfos().forEach((key, value) -> appendDetailLine(key, ": ", value));
     }
 
+    private void appendOperatorUniqueInfoJson(NodeInfo nodeInfo) {
+        String nodeName = "operatorUniqueInfo";
+        Map<String, Object> node = pushNewJsonNode(nodeName);
+        if (nodeInfo.element.instanceOf(JoinNode.class)) {
+            Counter buildTime = searchMetric(nodeInfo, SearchMode.NATIVE_ONLY, "_JOIN_BUILD (", true,
+                    "CommonMetrics", "OperatorTotalTime");
+            Counter probeTime = searchMetric(nodeInfo, SearchMode.NATIVE_ONLY, "_JOIN_PROBE (", true,
+                    "CommonMetrics", "OperatorTotalTime");
+            node.put("BuildTime", buildTime);
+            node.put("ProbeTime", probeTime);
+        } else if (nodeInfo.element.instanceOf(AggregationNode.class)) {
+            Optional<RuntimeProfile> cacheOptional = nodeInfo.subordinateOperatorProfiles.stream()
+                    .filter(profile -> profile.getName().contains("CACHE ("))
+                    .findAny();
+            if (cacheOptional.isPresent() && nodeInfo.element.hasChild(0) &&
+                    nodeInfo.element.getChild(0).instanceOf(ScanNode.class)) {
+                ProfilingExecPlan.ProfilingElement scanNode = nodeInfo.element.getChild(0);
+                NodeInfo scanNodeInfo = allNodeInfos.get(scanNode.getId());
+                Counter tabletNum = searchMetric(scanNodeInfo, SearchMode.NATIVE_ONLY, null, false,
+                        "UniqueMetrics", "TabletCount");
+                Counter cachePassthroughTabletNum = searchMetric(nodeInfo, SearchMode.SUBORDINATE_ONLY,
+                        "CACHE (", false, "UniqueMetrics", "CachePassthroughTabletNum");
+                Counter cacheProbeTabletNum = searchMetric(nodeInfo, SearchMode.SUBORDINATE_ONLY,
+                        "CACHE (", false, "UniqueMetrics", "CacheProbeTabletNum");
+                Counter cachePopulateTabletNum = searchMetric(nodeInfo, SearchMode.SUBORDINATE_ONLY,
+                        "CACHE (", false, "UniqueMetrics", "CachePopulateTabletNum");
+                if (tabletNum != null && tabletNum.getValue() > 0 && cachePassthroughTabletNum != null &&
+                        cacheProbeTabletNum != null && cachePopulateTabletNum != null) {
+                    node.put("tabletNum", tabletNum);
+                    node.put("cachePassThroughTabletNum", cachePassthroughTabletNum);
+                    node.put("cachePassThroughTabletNumRate",String.format("%.2f%%",
+                                    100.0 * cachePassthroughTabletNum.getValue() / tabletNum.getValue()));
+                    node.put("cacheProbeTabletNum",cacheProbeTabletNum);
+                    node.put("cacheProbeTabletNumRate",String.format("%.2f%%",
+                                    100.0 * cacheProbeTabletNum.getValue() / tabletNum.getValue()));
+                    node.put("cachePopulateTabletNum", cachePopulateTabletNum);
+                    node.put("cachePopulateTabletNumRate",String.format("%.2f%%",
+                                    100.0 * cachePopulateTabletNum.getValue() / tabletNum.getValue()));
+                }
+            }
+        }
+        node.putAll(nodeInfo.element.getUniqueInfos());
+        popCheckJsonNode(nodeName);
+    }
+
     private void appendSubordinateInfos(NodeInfo nodeInfo) {
         List<RuntimeProfile> subordinateOperatorProfiles = nodeInfo.subordinateOperatorProfiles;
         if (CollectionUtils.isEmpty(subordinateOperatorProfiles)) {
@@ -886,7 +1215,149 @@ public class ExplainAnalyzer {
         popIndent(); // metric indent
     }
 
+    private void appendSubordinateInfosJson(NodeInfo nodeInfo) {
+        List<RuntimeProfile> subordinateOperatorProfiles = nodeInfo.subordinateOperatorProfiles;
+        if (CollectionUtils.isEmpty(subordinateOperatorProfiles)) {
+            return;
+        }
+        String nodeName = "subordinateInfos";
+        Map<String, Object> node = pushNewJsonNode(nodeName);
+        Set<String> names = Sets.newTreeSet();
+        for (RuntimeProfile profile : subordinateOperatorProfiles) {
+            Matcher matcher = PLAN_OP_NAME.matcher(profile.getName());
+            Preconditions.checkState(matcher.matches());
+            String name = matcher.group(1);
+            if (name.endsWith("_SINK")) {
+                name = name.substring(0, name.length() - 5);
+            }
+            if (name.endsWith("_SOURCE")) {
+                name = name.substring(0, name.length() - 7);
+            }
+            names.add(name);
+        }
+        //        appendDetailLine("SubordinateOperators: ");
+        //        pushIndent(GraphElement.LEAF_METRIC_INDENT);
+        for (String name : names) {
+            StringBuilder titleBuilder = new StringBuilder();
+            titleBuilder.append(name);
+            List<String> attributes = Lists.newArrayList();
+            if ("LOCAL_EXCHANGE".equalsIgnoreCase(name)) {
+                String shuffleType = searchInfoString(nodeInfo, SearchMode.SUBORDINATE_ONLY, "LOCAL_EXCHANGE",
+                        "UniqueMetrics", "Type");
+                attributes.add(shuffleType);
+            }
+            if (CollectionUtils.isNotEmpty(attributes)) {
+                titleBuilder.append(' ')
+                        .append('[')
+                        .append(String.join(", ", attributes))
+                        .append(']');
+            }
+
+            appendDetailLine(titleBuilder.toString());
+        }
+        popIndent(); // metric indent
+    }
+
     private void appendOperatorDetailInfo(NodeInfo nodeInfo) {
+        if (!detailPlanNodeIds.contains(nodeInfo.planNodeId) && !nodeInfo.isMostConsuming &&
+                !nodeInfo.isSecondMostConsuming) {
+            return;
+        }
+
+        boolean onlyTimeConsumingMetrics = !detailPlanNodeIds.contains(nodeInfo.planNodeId);
+
+        RuntimeProfile mergedUniqueMetrics = new RuntimeProfile();
+        for (RuntimeProfile operatorProfile : nodeInfo.operatorProfiles) {
+            RuntimeProfile uniqueMetrics = operatorProfile.getChild("UniqueMetrics");
+            if (uniqueMetrics == null) {
+                continue;
+            }
+            mergedUniqueMetrics.copyAllInfoStringsFrom(uniqueMetrics, null);
+            mergedUniqueMetrics.copyAllCountersFrom(uniqueMetrics);
+        }
+
+        BiConsumer<Predicate<String>, Boolean> metricTraverser = (predicate, enableHighlight) -> {
+            LinkedList<Pair<String, Boolean>> stack = Lists.newLinkedList();
+            stack.push(Pair.create(RuntimeProfile.ROOT_COUNTER, false));
+            while (!stack.isEmpty()) {
+                Pair<String, Boolean> pair = stack.peek();
+                boolean isRoot = Objects.equals(pair.first, RuntimeProfile.ROOT_COUNTER);
+                if (pair.second) {
+                    if (!isRoot) {
+                        popIndent(); // metric indent
+                    }
+                    stack.pop();
+                    continue;
+                }
+                if (!isRoot) {
+                    pushIndent(GraphElement.LEAF_METRIC_INDENT);
+                    appendDetailMetric(nodeInfo, mergedUniqueMetrics, pair.first, enableHighlight);
+                }
+                pair.second = true;
+                Set<String> childCounterNames = mergedUniqueMetrics.getChildCounterMap().get(pair.first);
+                if (CollectionUtils.isNotEmpty(childCounterNames)) {
+                    childCounterNames.stream()
+                            .filter(name -> !name.startsWith(RuntimeProfile.MERGED_INFO_PREFIX_MIN)
+                                    && !name.startsWith(RuntimeProfile.MERGED_INFO_PREFIX_MAX))
+                            .filter(predicate)
+                            .collect(Collectors.toCollection(TreeSet::new))
+                            .descendingSet()
+                            .forEach(name -> stack.push(Pair.create(name, false)));
+                }
+            }
+        };
+
+        if (onlyTimeConsumingMetrics) {
+            // Only list time-consuming metrics
+            Set<String> selectNames = Sets.newHashSet();
+            for (Map.Entry<String, Counter> kv : mergedUniqueMetrics.getCounterMap().entrySet()) {
+                String name = kv.getKey();
+                Counter counter = kv.getValue();
+                if (!Counter.isTimeType(counter.getType())) {
+                    continue;
+                }
+                if (INCLUDE_DETAIL_METRIC_NAMES.contains(name) ||
+                        nodeInfo.isTimeConsumingMetric(mergedUniqueMetrics, name)) {
+                    selectNames.add(name);
+                    // Add all ancestors
+                    Pair<Counter, String> pair = mergedUniqueMetrics.getCounterPair(name);
+                    while (pair != null && !RuntimeProfile.ROOT_COUNTER.equals(pair.second)) {
+                        selectNames.add(pair.second);
+                        pair = mergedUniqueMetrics.getCounterPair(pair.second);
+                    }
+                }
+            }
+
+            if (CollectionUtils.isNotEmpty(selectNames)) {
+                appendDetailLine("Detail Timers: ", nodeInfo.getDetailAttributes());
+                metricTraverser.accept(selectNames::contains, false);
+            }
+        } else {
+            appendDetailLine("Details: ", nodeInfo.getDetailAttributes());
+            pushIndent(GraphElement.LEAF_METRIC_INDENT);
+
+            if (MapUtils.isNotEmpty(mergedUniqueMetrics.getInfoStrings())) {
+                appendDetailLine("Infos:");
+                pushIndent(GraphElement.LEAF_METRIC_INDENT);
+                for (Map.Entry<String, String> kv : mergedUniqueMetrics.getInfoStrings().entrySet()) {
+                    appendDetailLine(kv.getKey(), ": ", kv.getValue());
+                }
+                popIndent(); // metric indent
+            }
+
+            if (CollectionUtils.isNotEmpty(mergedUniqueMetrics.getChildCounterMap().get(RuntimeProfile.ROOT_COUNTER))) {
+                appendDetailLine("Counters:");
+                metricTraverser.accept(name -> true, true);
+            }
+
+            popIndent(); // metric indent
+        }
+    }
+
+    private void appendOperatorDetailInfoJson(NodeInfo nodeInfo) {
+        if (true) {
+            return;
+        }
         if (!detailPlanNodeIds.contains(nodeInfo.planNodeId) && !nodeInfo.isMostConsuming &&
                 !nodeInfo.isSecondMostConsuming) {
             return;
