@@ -5472,8 +5472,12 @@ public class AstBuilder extends StarRocksBaseVisitor<ParseNode> {
             queryStatement.setOutFileClause((OutFileClause) visit(context.outfile()));
         }
 
-        if (context.explainDesc() != null) {
-            queryStatement.setIsExplain(true, getExplainType(context.explainDesc()));
+        StarRocksParser.ExplainDescContext explainDescContext = context.explainDesc();
+        if (explainDescContext != null) {
+            queryStatement.setIsExplain(true, getExplainType(explainDescContext));
+            if (explainDescContext.formatDesc() != null) {
+                queryStatement.setExplainFormat(explainDescContext.formatDesc().identifier().getText());
+            }
         }
 
         if (context.optimizerTrace() != null) {

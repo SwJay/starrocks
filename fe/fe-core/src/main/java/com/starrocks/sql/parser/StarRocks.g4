@@ -459,6 +459,10 @@ engineDesc
     : ENGINE EQ identifier
     ;
 
+formatDesc
+    : FORMAT EQ identifier
+    ;
+
 charsetDesc
     : DEFAULT? (CHAR SET | CHARSET | CHARACTER SET) EQ? identifierOrString
     ;
@@ -2757,7 +2761,7 @@ backupRestoreTableDesc
     ;
 
 explainDesc
-    : (DESC | DESCRIBE | EXPLAIN) (LOGICAL | ANALYZE | VERBOSE | COSTS | SCHEDULER)?
+    : (DESC | DESCRIBE | EXPLAIN) (LOGICAL | ANALYZE | VERBOSE | COSTS | SCHEDULER)? formatDesc?
     ;
 
 optimizerTrace
