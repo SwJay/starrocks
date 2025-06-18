@@ -513,8 +513,8 @@ public class ExplainAnalyzer {
             resultDeliverTime = new Counter(TUnit.TIME_NS, null, 0);
         }
         if (executionWallTime != null) {
-            node.put("executionWallTime", RuntimeProfile.printCounter(executionWallTime));
-            node.put("executionWallTimeDetail", "[Scan: " + cumulativeScanTime +
+            node.put("executionWallTimeDetail", RuntimeProfile.printCounter(executionWallTime) +
+                    " [Scan: " + cumulativeScanTime +
                     String.format(" (%.2f%%)", 100.0 * cumulativeScanTime.getValue() / executionWallTime.getValue()) +
                     ", Network: " + cumulativeNetworkTime +
                     String.format(" (%.2f%%)", 100.0 * cumulativeNetworkTime.getValue() / executionWallTime.getValue()) +
@@ -610,7 +610,7 @@ public class ExplainAnalyzer {
                 .map(it -> {
                     Map<String, Object> node = new HashMap<>();
                     node.put("title", it.getTitle());
-                    node.put("totalTime", it.totalTime);
+                    node.put("totalTime", RuntimeProfile.printCounter(it.totalTime));
                     node.put("totalTimePercentage", it.totalTimePercentage);
                     return node;
                 }).collect(Collectors.toList());
@@ -834,7 +834,6 @@ public class ExplainAnalyzer {
 
     private void leftOrderTraverseJson(ProfilingExecPlan.ProfilingElement cur, Map<String, Object> parent) {
         Map<String, Object> node = new HashMap<>();
-        node.put("id", cur.getId());
         List<Object> planNodes = (List<Object>) parent.computeIfAbsent("planNodes", t -> new ArrayList<>());
         planNodes.add(node);
         NodeInfo nodeInfo = allNodeInfos.get(cur.getId());
@@ -959,9 +958,9 @@ public class ExplainAnalyzer {
             }
         }
         // 2. Time Usage
-        node.put("totalTime", nodeInfo.totalTime);
+        node.put("totalTime", RuntimeProfile.printCounter(nodeInfo.totalTime));
         node.put("totalTimePercentage", String.format("%.2f%%", nodeInfo.totalTimePercentage));
-        node.put("cpuTime", nodeInfo.cpuTime);
+        node.put("cpuTime", RuntimeProfile.printCounter(nodeInfo.cpuTime));
         if (nodeInfo.element.instanceOf(ExchangeNode.class)) {
             if (nodeInfo.networkTime != null) {
                 node.put("networkTime", nodeInfo.networkTime);
@@ -973,7 +972,7 @@ public class ExplainAnalyzer {
         }
 
         // 3. Output Rows
-        node.put("outputRowNums", nodeInfo.outputRowNums);
+        node.put("outputRowNums", RuntimeProfile.printCounter(nodeInfo.outputRowNums));
 
         // 4. Memory Infos
         if (nodeInfo.element.isMemoryConsumingOperator()) {
