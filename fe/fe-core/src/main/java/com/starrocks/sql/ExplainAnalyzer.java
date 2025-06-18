@@ -218,6 +218,9 @@ public class ExplainAnalyzer {
     }
 
     public static String toJsonString(Object object) {
+        if (object == null) {
+            return "null";
+        }
         if (object instanceof Map<?, ?>) {
             StringBuilder res = new StringBuilder("{");
             for (Map.Entry<?, ?> entry : ((Map<?, ?>) object).entrySet()) {
@@ -236,10 +239,8 @@ public class ExplainAnalyzer {
                 res.append(toJsonString(o));
             }
             return res.append("]").toString();
-        } else if (object instanceof String) {
-            return "\"" + object + "\"";
         } else {
-            return object.toString();
+            return "\"" + object + "\"";
         }
     }
 
