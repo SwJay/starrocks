@@ -220,7 +220,10 @@ public class ExplainAnalyzer {
     }
 
     public static String toJsonString(Object object) {
-        Map<String, Integer> orderMap = Map.of("planNodes", 9);
+        Map<String, Integer> orderMap = Map.of(
+                "title", -2,
+                "id", -1,
+                "planNodes", 9);
         if (object == null) {
             return "null";
         }
@@ -733,7 +736,7 @@ public class ExplainAnalyzer {
     private Object buildFragmentJson(ProfilingExecPlan.ProfilingFragment fragment, RuntimeProfile fragmentProfile) {
 
         Map<String, Object> node = new HashMap<>();
-        node.put("name", fragmentProfile.getName());
+        node.put("title", fragmentProfile.getName());
         node.put("backendNum", fragmentProfile.getCounter("BackendNum"));
         node.put("instancePeakMemoryUsage", fragmentProfile.getCounter("InstancePeakMemoryUsage"));
         node.put("instanceAllocatedMemoryUsage", fragmentProfile.getCounter("InstanceAllocatedMemoryUsage"));
@@ -751,7 +754,7 @@ public class ExplainAnalyzer {
             if (CollectionUtils.isNotEmpty(sink.getMultiSinkIds())) {
                 sink.getMultiSinkIds().forEach(id -> ids.add(Integer.toString(id)));
             }
-            sinkNode.put(sink.getDisplayName(), Map.of("ids", ids));
+            sinkNode.put("title", sink.getDisplayName() + String.format(" (ids=[%s])", String.join(", ", ids)));
         } else {
             if (sink.isFinalSink()) {
                 isFinalSink = true;
@@ -762,7 +765,7 @@ public class ExplainAnalyzer {
             } else {
                 sinkInfo = allNodeInfos.get(sink.getId());
             }
-            sinkNode.put(sink.getDisplayName(), isFinalSink ? null : Map.of("id", sink.getId()));
+            sinkNode.put("title", sink.getDisplayName() + (isFinalSink ? "" : String.format(" (id=[%s])", sink.getId())));
         }
         if (isFinalSink && !sinkInfo.state.isInit()) {
             NodeInfo resultNodeInfo = allNodeInfos.get(FINAL_SINK_PSEUDO_PLAN_NODE_ID);
