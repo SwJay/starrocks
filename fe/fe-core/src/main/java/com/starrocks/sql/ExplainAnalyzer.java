@@ -767,7 +767,7 @@ public class ExplainAnalyzer {
             ));
         }
         node.putAll(sink.getUniqueInfos());
-        leftOrderTraverseJson(fragment.getRoot(), node, null);
+        leftOrderTraverseJson(fragment.getRoot(), node);
         return node;
     }
 
@@ -822,26 +822,23 @@ public class ExplainAnalyzer {
         popIndent(); // child operator indent
     }
 
-    private void leftOrderTraverseJson(ProfilingExecPlan.ProfilingElement cur, Map<String, Object> parent,
-                                       String preTitleAttribute) {
+    private void leftOrderTraverseJson(ProfilingExecPlan.ProfilingElement cur, Map<String, Object> parent) {
         Map<String, Object> node = new HashMap<>();
-        parent.put("planNodeId=" + cur.getId(), node);
+        node.put("id", cur.getId());
+        List<Object> planNodes = (List<Object>) parent.computeIfAbsent("planNodes", t -> new ArrayList<>());
+        planNodes.add(node);
         NodeInfo nodeInfo = allNodeInfos.get(cur.getId());
         Preconditions.checkNotNull(nodeInfo);
         nodeInfo.computeTimeUsage(cumulativeOperatorTime);
         nodeInfo.computeMemoryUsage();
-        node.put(String.format("<%s>", preTitleAttribute), nodeInfo.getTitle());
+        node.put("title", nodeInfo.getTitle());
         boolean shouldTraverseChildren = cur.getChildren() != null
                 && !cur.getChildren().isEmpty()
                 && !(cur.instanceOf(ExchangeNode.class));
         node.put("operatorInfo", buildOperatorInfoJson(nodeInfo));
         if (shouldTraverseChildren) {
             for (int i = 0; i < cur.getChildren().size(); i++) {
-                String childTitleAttribute = null;
-                if (nodeInfo.element.instanceOf(JoinNode.class)) {
-                    childTitleAttribute = (i == 0 ? "PROBE" : "BUILD");
-                }
-                leftOrderTraverseJson(cur.getChildren().get(i), node, childTitleAttribute);
+                leftOrderTraverseJson(cur.getChildren().get(i), node);
             }
         }
     }
