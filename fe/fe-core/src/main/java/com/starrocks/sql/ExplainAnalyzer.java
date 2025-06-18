@@ -513,12 +513,12 @@ public class ExplainAnalyzer {
             resultDeliverTime = new Counter(TUnit.TIME_NS, null, 0);
         }
         if (executionWallTime != null) {
-            node.put("executionWallTime", executionWallTime);
+            node.put("executionWallTime", RuntimeProfile.printCounter(executionWallTime));
             node.put("executionWallTimeDetail", "[Scan: " + cumulativeScanTime +
                     String.format(" (%.2f%%)", 100.0 * cumulativeScanTime.getValue() / executionWallTime.getValue()) +
                     ", Network: " + cumulativeNetworkTime +
                     String.format(" (%.2f%%)", 100.0 * cumulativeNetworkTime.getValue() / executionWallTime.getValue()) +
-                    ", ResultDeliverTime: " + resultDeliverTime +
+                    ", ResultDeliverTime: " + RuntimeProfile.printCounter(resultDeliverTime) +
                     String.format(" (%.2f%%)", 100.0 * resultDeliverTime.getValue() / executionWallTime.getValue()) +
                     ", ScheduleTime: " + scheduleTime +
                     String.format(" (%.2f%%)", 100.0 * scheduleTime.getValue() / executionWallTime.getValue()) +
@@ -737,10 +737,10 @@ public class ExplainAnalyzer {
 
         Map<String, Object> node = new HashMap<>();
         node.put("title", fragmentProfile.getName());
-        node.put("backendNum", fragmentProfile.getCounter("BackendNum"));
-        node.put("instancePeakMemoryUsage", fragmentProfile.getCounter("InstancePeakMemoryUsage"));
-        node.put("instanceAllocatedMemoryUsage", fragmentProfile.getCounter("InstanceAllocatedMemoryUsage"));
-        node.put("fragmentInstancePrepareTime", fragmentProfile.getCounter("FragmentInstancePrepareTime"));
+        node.put("backendNum", RuntimeProfile.printCounter(fragmentProfile.getCounter("BackendNum")));
+        node.put("instancePeakMemoryUsage", RuntimeProfile.printCounter(fragmentProfile.getCounter("InstancePeakMemoryUsage")));
+        node.put("instanceAllocatedMemoryUsage", RuntimeProfile.printCounter(fragmentProfile.getCounter("InstanceAllocatedMemoryUsage")));
+        node.put("fragmentInstancePrepareTime", RuntimeProfile.printCounter(fragmentProfile.getCounter("FragmentInstancePrepareTime")));
         node.put("missingInstanceIds", fragmentProfile.getInfoString("MissingInstanceIds"));
 
         ProfilingExecPlan.ProfilingElement sink = fragment.getSink();
@@ -987,7 +987,7 @@ public class ExplainAnalyzer {
         Counter rfOutputRows = searchMetric(nodeInfo, SearchMode.NATIVE_ONLY, null, false,
                 "CommonMetrics", "JoinRuntimeFilterOutputRows");
         if (rfInputRows != null && rfOutputRows != null && rfInputRows.getValue() > 0) {
-            node.put("joinRuntimeFilterInputRows", rfInputRows);
+            node.put("joinRuntimeFilterInputRows", RuntimeProfile.printCounter(rfInputRows));
             node.put("joinRuntimeFilterOutputRows", String.format("%.2f%%",
                     100.0 * (rfInputRows.getValue() - rfOutputRows.getValue()) / rfInputRows.getValue()));
         }
@@ -1088,8 +1088,8 @@ public class ExplainAnalyzer {
                     "CommonMetrics", "OperatorTotalTime");
             Counter probeTime = searchMetric(nodeInfo, SearchMode.NATIVE_ONLY, "_JOIN_PROBE (", true,
                     "CommonMetrics", "OperatorTotalTime");
-            node.put("buildTime", buildTime);
-            node.put("probeTime", probeTime);
+            node.put("buildTime", RuntimeProfile.printCounter(buildTime));
+            node.put("probeTime", RuntimeProfile.printCounter(probeTime));
         } else if (nodeInfo.element.instanceOf(AggregationNode.class)) {
             Optional<RuntimeProfile> cacheOptional = nodeInfo.subordinateOperatorProfiles.stream()
                     .filter(profile -> profile.getName().contains("CACHE ("))
@@ -1109,13 +1109,13 @@ public class ExplainAnalyzer {
                 if (tabletNum != null && tabletNum.getValue() > 0 && cachePassthroughTabletNum != null &&
                         cacheProbeTabletNum != null && cachePopulateTabletNum != null) {
                     node.put("tabletNum", tabletNum);
-                    node.put("cachePassThroughTabletNum", cachePassthroughTabletNum);
+                    node.put("cachePassThroughTabletNum", RuntimeProfile.printCounter(cachePassthroughTabletNum));
                     node.put("cachePassThroughTabletNumPercentage", String.format("%.2f%%",
                             100.0 * cachePassthroughTabletNum.getValue() / tabletNum.getValue()));
-                    node.put("cacheProbeTabletNum", cacheProbeTabletNum);
+                    node.put("cacheProbeTabletNum", RuntimeProfile.printCounter(cacheProbeTabletNum));
                     node.put("cacheProbeTabletNumPercentage", String.format("%.2f%%",
                             100.0 * cacheProbeTabletNum.getValue() / tabletNum.getValue()));
-                    node.put("cachePopulateTabletNum", cachePopulateTabletNum);
+                    node.put("cachePopulateTabletNum", RuntimeProfile.printCounter(cachePopulateTabletNum));
                     node.put("cachePopulateTabletNumPercentage", String.format("%.2f%%",
                             100.0 * cachePopulateTabletNum.getValue() / tabletNum.getValue()));
                 }
