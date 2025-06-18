@@ -45,6 +45,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -218,17 +220,17 @@ public class ExplainAnalyzer {
     }
 
     public static String toJsonString(Object object) {
+        Map<String, Integer> orderMap = Map.of("planNodes", 9);
         if (object == null) {
             return "null";
         }
         if (object instanceof Map<?, ?>) {
             StringBuilder res = new StringBuilder("{");
-            for (Map.Entry<?, ?> entry : ((Map<?, ?>) object).entrySet()) {
-                if (res.length() > 1) {
-                    res.append(",");
-                }
-                res.append("\"").append(entry.getKey()).append("\":").append(toJsonString(entry.getValue()));
-            }
+            ((Map<?, ?>) object).entrySet().stream()
+                    .sorted(Comparator.comparing(it -> orderMap.getOrDefault((String) it.getKey(), 0)))
+                    .forEach(entry -> res.append(res.length() > 1 ? "," : "")
+                            .append("\"").append(entry.getKey()).append("\":")
+                            .append(toJsonString(entry.getValue())));
             return res.append("}").toString();
         } else if (object instanceof List<?>) {
             StringBuilder res = new StringBuilder("[");
@@ -729,6 +731,7 @@ public class ExplainAnalyzer {
     }
 
     private Object buildFragmentJson(ProfilingExecPlan.ProfilingFragment fragment, RuntimeProfile fragmentProfile) {
+
         Map<String, Object> node = new HashMap<>();
         node.put("name", fragmentProfile.getName());
         node.put("backendNum", fragmentProfile.getCounter("BackendNum"));
@@ -736,7 +739,11 @@ public class ExplainAnalyzer {
         node.put("instanceAllocatedMemoryUsage", fragmentProfile.getCounter("InstanceAllocatedMemoryUsage"));
         node.put("fragmentInstancePrepareTime", fragmentProfile.getCounter("FragmentInstancePrepareTime"));
         node.put("missingInstanceIds", fragmentProfile.getInfoString("MissingInstanceIds"));
+
         ProfilingExecPlan.ProfilingElement sink = fragment.getSink();
+        Map<String, Object> sinkNode = new HashMap<>();
+        node.put("planNodes", Collections.singletonList(sinkNode));
+
         NodeInfo sinkInfo = null;
         boolean isFinalSink = false;
         if (sink.instanceOf(MultiCastDataSink.class)) {
@@ -744,7 +751,7 @@ public class ExplainAnalyzer {
             if (CollectionUtils.isNotEmpty(sink.getMultiSinkIds())) {
                 sink.getMultiSinkIds().forEach(id -> ids.add(Integer.toString(id)));
             }
-            node.put(sink.getDisplayName(), Map.of("ids", ids));
+            sinkNode.put(sink.getDisplayName(), Map.of("ids", ids));
         } else {
             if (sink.isFinalSink()) {
                 isFinalSink = true;
@@ -755,19 +762,19 @@ public class ExplainAnalyzer {
             } else {
                 sinkInfo = allNodeInfos.get(sink.getId());
             }
-            node.put(sink.getDisplayName(), isFinalSink ? null : Map.of("id", sink.getId()));
+            sinkNode.put(sink.getDisplayName(), isFinalSink ? null : Map.of("id", sink.getId()));
         }
         if (isFinalSink && !sinkInfo.state.isInit()) {
             NodeInfo resultNodeInfo = allNodeInfos.get(FINAL_SINK_PSEUDO_PLAN_NODE_ID);
-            node.put("resultNodeInfo", Map.of(
+            sinkNode.put("resultNodeInfo", Map.of(
                     "totalTime", resultNodeInfo.totalTime,
                     "totalTimePercentage", String.format("%.2f%%", resultNodeInfo.totalTimePercentage),
                     "cpuTime: ", resultNodeInfo.cpuTime,
                     "outputRowNums", resultNodeInfo.outputRowNums
             ));
         }
-        node.putAll(sink.getUniqueInfos());
-        leftOrderTraverseJson(fragment.getRoot(), node);
+        sinkNode.putAll(sink.getUniqueInfos());
+        leftOrderTraverseJson(fragment.getRoot(), sinkNode);
         return node;
     }
 
