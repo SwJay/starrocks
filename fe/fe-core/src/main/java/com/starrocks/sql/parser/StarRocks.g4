@@ -411,7 +411,7 @@ engineDesc
     ;
 
 formatDesc
-    : FORMAT EQ identifier
+    : FORMAT EQ formatType=JSON
     ;
 
 charsetDesc

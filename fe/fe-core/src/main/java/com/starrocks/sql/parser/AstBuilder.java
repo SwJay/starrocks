@@ -4606,7 +4606,7 @@ public class AstBuilder extends StarRocksBaseVisitor<ParseNode> {
         if (explainDescContext != null) {
             queryStatement.setIsExplain(true, getExplainType(explainDescContext));
             if (explainDescContext.formatDesc() != null) {
-                queryStatement.setExplainFormat(explainDescContext.formatDesc().identifier().getText());
+                queryStatement.setExplainFormat(explainDescContext.formatDesc().formatType.getText());
             }
         }
 
