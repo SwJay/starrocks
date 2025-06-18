@@ -530,11 +530,14 @@ public class ExplainAnalyzer {
                             summaryProfile.getInfoString(ProfileManager.PROFILE_COLLECT_TIME) :
                             summaryProfile.getCounter(ProfileManager.PROFILE_COLLECT_TIME));
         }
-        node.put("frontendProfileMergeTime", executionProfile.getCounter("FrontendProfileMergeTime"));
+        node.put("frontendProfileMergeTime", RuntimeProfile.printCounter(
+                executionProfile.getCounter("FrontendProfileMergeTime")));
 
         // 3. Memory Usage
-        node.put("queryPeakMemoryUsage", executionProfile.getCounter("QueryPeakMemoryUsage"));
-        node.put("queryAllocatedMemoryUsage", executionProfile.getCounter("QueryAllocatedMemoryUsage"));
+        node.put("queryPeakMemoryUsage", RuntimeProfile.printCounter(
+                executionProfile.getCounter("QueryPeakMemoryUsage")));
+        node.put("queryAllocatedMemoryUsage", RuntimeProfile.printCounter(
+                executionProfile.getCounter("QueryAllocatedMemoryUsage")));
 
         // 4. Top Cpu Nodes
         node.put("cpuTopNodes", buildCpuTopNodesJson());
@@ -770,10 +773,10 @@ public class ExplainAnalyzer {
         if (isFinalSink && !sinkInfo.state.isInit()) {
             NodeInfo resultNodeInfo = allNodeInfos.get(FINAL_SINK_PSEUDO_PLAN_NODE_ID);
             sinkNode.put("resultNodeInfo", Map.of(
-                    "totalTime", resultNodeInfo.totalTime,
+                    "totalTime", RuntimeProfile.printCounter(resultNodeInfo.totalTime),
                     "totalTimePercentage", String.format("%.2f%%", resultNodeInfo.totalTimePercentage),
-                    "cpuTime: ", resultNodeInfo.cpuTime,
-                    "outputRowNums", resultNodeInfo.outputRowNums
+                    "cpuTime: ", RuntimeProfile.printCounter(resultNodeInfo.cpuTime),
+                    "outputRowNums", RuntimeProfile.printCounter(resultNodeInfo.outputRowNums)
             ));
         }
         sinkNode.putAll(sink.getUniqueInfos());
@@ -963,11 +966,11 @@ public class ExplainAnalyzer {
         node.put("cpuTime", RuntimeProfile.printCounter(nodeInfo.cpuTime));
         if (nodeInfo.element.instanceOf(ExchangeNode.class)) {
             if (nodeInfo.networkTime != null) {
-                node.put("networkTime", nodeInfo.networkTime);
+                node.put("networkTime", RuntimeProfile.printCounter(nodeInfo.networkTime));
             }
         } else if (nodeInfo.element.instanceOf(ScanNode.class)) {
             if (nodeInfo.scanTime != null) {
-                node.put("scanTime", nodeInfo.scanTime);
+                node.put("scanTime", RuntimeProfile.printCounter(nodeInfo.scanTime));
             }
         }
 
@@ -1425,10 +1428,10 @@ public class ExplainAnalyzer {
         Counter minCounter = uniqueMetrics.getCounter(RuntimeProfile.MERGED_INFO_PREFIX_MIN + name);
         Counter maxCounter = uniqueMetrics.getCounter(RuntimeProfile.MERGED_INFO_PREFIX_MAX + name);
         node.put("name", name);
-        node.put("counter", counter);
+        node.put("counter", RuntimeProfile.printCounter(counter));
         if (minCounter != null || maxCounter != null) {
-            node.put("min", minCounter);
-            node.put("max", maxCounter);
+            node.put("min", RuntimeProfile.printCounter(minCounter));
+            node.put("max", RuntimeProfile.printCounter(maxCounter));
         }
         return node;
     }
